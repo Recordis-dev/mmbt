@@ -1,0 +1,171 @@
+{
+  "name": "Trench Predator V1.1",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "trench-signal",
+        "httpMethod": "POST",
+        "responseMode": "lastNode"
+      },
+      "id": "telegram-webhook",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/01-extract-token-address.js here"
+      },
+      "id": "extract-token-address",
+      "name": "Extract Token Address",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/02-admission-control.js here"
+      },
+      "id": "admission-control",
+      "name": "Admission Control",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "approved"
+            }
+          ]
+        }
+      },
+      "id": "if-admitted",
+      "name": "IF Admitted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/03-parallel-security-check.js here"
+      },
+      "id": "parallel-security-check",
+      "name": "Parallel Security Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "safe"
+            }
+          ]
+        }
+      },
+      "id": "if-security-passed",
+      "name": "IF Security Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/04-dynamic-bet-size.js here"
+      },
+      "id": "dynamic-bet-size",
+      "name": "Dynamic Bet Size",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/05-jupiter-buy.js here"
+      },
+      "id": "jupiter-buy",
+      "name": "Jupiter Buy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 160]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('buy_attempt', $1, $2, 'local_engine');"
+      },
+      "id": "log-buy-attempt",
+      "name": "Log Buy Attempt",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2000, 160]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "monitor-wait",
+      "name": "Monitor Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2220, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Paste n8n/code-nodes/06-monitor-exit-decision.js here"
+      },
+      "id": "monitor-exit-decision",
+      "name": "Monitor Exit Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 160]
+    }
+  ],
+  "connections": {
+    "Telegram Webhook": {
+      "main": [[{ "node": "Extract Token Address", "type": "main", "index": 0 }]]
+    },
+    "Extract Token Address": {
+      "main": [[{ "node": "Admission Control", "type": "main", "index": 0 }]]
+    },
+    "Admission Control": {
+      "main": [[{ "node": "IF Admitted", "type": "main", "index": 0 }]]
+    },
+    "IF Admitted": {
+      "main": [[{ "node": "Parallel Security Check", "type": "main", "index": 0 }], []]
+    },
+    "Parallel Security Check": {
+      "main": [[{ "node": "IF Security Passed", "type": "main", "index": 0 }]]
+    },
+    "IF Security Passed": {
+      "main": [[{ "node": "Dynamic Bet Size", "type": "main", "index": 0 }], []]
+    },
+    "Dynamic Bet Size": {
+      "main": [[{ "node": "Jupiter Buy", "type": "main", "index": 0 }]]
+    },
+    "Jupiter Buy": {
+      "main": [[{ "node": "Log Buy Attempt", "type": "main", "index": 0 }]]
+    },
+    "Log Buy Attempt": {
+      "main": [[{ "node": "Monitor Wait", "type": "main", "index": 0 }]]
+    },
+    "Monitor Wait": {
+      "main": [[{ "node": "Monitor Exit Decision", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

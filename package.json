@@ -1,0 +1,14 @@
+{
+  "name": "trench-predator-v1-1",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Solana agentic HFT bot implementation pack for n8n, PostgreSQL, Redis and Jupiter.",
+  "scripts": {
+    "test": "node --test",
+    "lint": "node scripts/check-syntax.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
