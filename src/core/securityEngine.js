@@ -1,5 +1,11 @@
 import { DEFAULT_LIMITS } from "./config.js";
 
+/**
+ * Wraps a promise with a timeout.
+ * @param {Promise} promise - The promise to wrap.
+ * @param {number} [timeoutMs=DEFAULT_LIMITS.securityTimeoutMs] - Timeout in milliseconds.
+ * @returns {Promise} - Resolves with the original promise or rejects with a timeout error.
+ */
 export async function withTimeout(promise, timeoutMs = DEFAULT_LIMITS.securityTimeoutMs) {
   const timeout = new Promise((_, reject) => {
     const timer = setTimeout(() => {
@@ -11,6 +17,12 @@ export async function withTimeout(promise, timeoutMs = DEFAULT_LIMITS.securityTi
   return Promise.race([promise, timeout]);
 }
 
+/**
+ * Runs security checks in parallel and enforces a timeout.
+ * @param {Array<Object>} checks - Array of check objects { run: () => Promise }.
+ * @param {Object} [limits=DEFAULT_LIMITS] - Security limits (timeout and min responses).
+ * @returns {Promise<Object>} - The result of the security evaluation.
+ */
 export async function runParallelSecurityChecks(checks, limits = DEFAULT_LIMITS) {
   const settled = await Promise.allSettled(
     checks.map((check) => withTimeout(check.run(), limits.securityTimeoutMs))
@@ -51,6 +63,11 @@ export async function runParallelSecurityChecks(checks, limits = DEFAULT_LIMITS)
   };
 }
 
+/**
+ * Routes a provider result to its specific evaluation logic.
+ * @param {Object} result - The result from a security provider.
+ * @returns {boolean} - True if passed, false otherwise.
+ */
 export function evaluateProviderResult(result) {
   if (!result) return false;
 
@@ -61,11 +78,21 @@ export function evaluateProviderResult(result) {
   return false;
 }
 
+/**
+ * Logic for RugCheck evaluation.
+ * @param {Object} result - RugCheck API response.
+ * @returns {boolean}
+ */
 export function evaluateRugCheck(result) {
   return Number(result.score ?? Number.POSITIVE_INFINITY) < 500 &&
     result.token?.liquidityBurned === true;
 }
 
+/**
+ * Logic for GoPlus evaluation.
+ * @param {Object} result - GoPlus API response.
+ * @returns {boolean}
+ */
 export function evaluateGoPlus(result) {
   const data = result.data?.[result.tokenAddress] ?? result.data;
 
@@ -76,6 +103,11 @@ export function evaluateGoPlus(result) {
     isFalseLike(data.is_honeypot);
 }
 
+/**
+ * Logic for SolSniffer evaluation.
+ * @param {Object} result - SolSniffer API response.
+ * @returns {boolean}
+ */
 export function evaluateSolSniffer(result) {
   const top10Concentration = Number(
     result.topHolders?.top10Percentage ??
@@ -86,6 +118,11 @@ export function evaluateSolSniffer(result) {
   return top10Concentration <= 25;
 }
 
+/**
+ * Helper to check if a value is falsy in various string/number formats.
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isFalseLike(value) {
   return value === false || value === "0" || value === 0 || value === "false";
 }

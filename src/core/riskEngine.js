@@ -1,3 +1,9 @@
+/**
+ * Analyzes market metrics against current position state to detect red flags.
+ * @param {Object} metrics - Current market metrics (volume, holders, pressure, fees).
+ * @param {Object} position - Current position data (avgVolume, peakHolders).
+ * @returns {Object} - Analysis result with signals and negative count.
+ */
 export function analyzeLocally(metrics = {}, position = {}) {
   const signals = [];
 
@@ -29,6 +35,11 @@ export function analyzeLocally(metrics = {}, position = {}) {
   };
 }
 
+/**
+ * Decides if a panic exit is required based on risk signals.
+ * @param {Object} riskSignals - The output from analyzeLocally.
+ * @returns {Object} - Action (panic_exit or continue).
+ */
 export function decideRiskAction(riskSignals) {
   if (Number(riskSignals?.negativeCount ?? 0) >= 3) {
     return {
