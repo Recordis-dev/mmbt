@@ -4,9 +4,9 @@ const consecutiveLosses = Number($json.consecutiveLosses ?? 0);
 let betSizeUsd = 0.25;
 
 if (dailyPnL <= -15 || consecutiveLosses >= 15) {
-  await redis.set("trench:circuit_breaker", "1", "EX", 86400);
   return [{
     json: {
+      ...$json,
       action: "HALT",
       reason: "Circuit breaker activated",
       betSizeUsd: 0

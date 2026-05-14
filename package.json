@@ -6,7 +6,9 @@
   "description": "Solana agentic HFT bot implementation pack for n8n, PostgreSQL, Redis and Jupiter.",
   "scripts": {
     "test": "node --test",
-    "lint": "node scripts/check-syntax.js"
+    "lint": "node scripts/check-syntax.js",
+    "sync:workflow": "node scripts/sync-n8n-operational-workflow.js",
+    "n8n:start": "bash scripts/start-n8n-local.sh"
   },
   "engines": {
     "node": ">=20"

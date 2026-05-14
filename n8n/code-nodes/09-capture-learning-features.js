@@ -6,38 +6,14 @@ const features = buildLearningFeatures({
 
 const patternKey = buildPatternKey(features);
 
-await db.query(
-  `INSERT INTO trade_features (
-    position_id,
-    signal_id,
-    token_address,
-    source_channel,
-    security_score,
-    market_snapshot,
-    risk_snapshot,
-    pattern_key,
-    entry_decision,
-    entry_reason
-  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-  [
-    $json.positionId ?? null,
-    $json.signalId ?? null,
-    $json.tokenAddress,
-    $json.sourceChannel ?? "unknown",
-    JSON.stringify(features.security),
-    JSON.stringify(features.market),
-    JSON.stringify(features.risk),
-    patternKey,
-    $json.entryDecision ?? "approved",
-    $json.entryReason ?? "security_passed"
-  ]
-);
-
 return [{
   json: {
     ...$json,
     learningFeatures: features,
-    patternKey
+    patternKey,
+    securitySnapshot: JSON.stringify(features.security),
+    marketSnapshot: JSON.stringify(features.market),
+    riskSnapshot: JSON.stringify(features.risk)
   }
 }];
 

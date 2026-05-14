@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS signals (
   id SERIAL PRIMARY KEY,
   token_address VARCHAR(44) NOT NULL,
   source_channel VARCHAR(100),
+  raw_message TEXT,
   received_at TIMESTAMP DEFAULT NOW(),
   status VARCHAR(20) DEFAULT 'pending',
   security_scores JSONB,
@@ -25,6 +26,8 @@ CREATE TABLE IF NOT EXISTS positions (
   multiplier DECIMAL(8, 2),
   partial_tp_taken BOOLEAN DEFAULT false,
   trailing_stop_percentage DECIMAL(5, 2),
+  avg_volume DECIMAL(30, 10),
+  peak_holders INTEGER,
   risk_confluences JSONB
 );
 
@@ -106,6 +109,10 @@ CREATE TABLE IF NOT EXISTS learning_patterns (
   confidence_score DECIMAL(8, 4) DEFAULT 0,
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE signals ADD COLUMN IF NOT EXISTS raw_message TEXT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS avg_volume DECIMAL(30, 10);
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS peak_holders INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_signals_token ON signals(token_address);
 CREATE INDEX IF NOT EXISTS idx_signals_received_at ON signals(received_at);

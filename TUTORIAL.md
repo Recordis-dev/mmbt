@@ -32,6 +32,14 @@ Set up environment variables in your n8n environment:
 ```env
 # Solana
 SOLANA_WALLET_PUBLIC_KEY=your_public_key
+SOL_USD=150
+JUPITER_SLIPPAGE_BPS=1500
+JUPITER_EXIT_SLIPPAGE_BPS=2000
+JUPITER_MAX_PRIORITY_LAMPORTS=10000000
+
+# Secure signer service
+SIGNER_URL=http://127.0.0.1:8787/sign-and-send
+SIGNER_API_KEY=your_signer_api_key
 
 # Security APIs
 RUGCHECK_API_KEY=your_api_key
@@ -49,13 +57,15 @@ REDIS_URL=redis://localhost:6379
 2. Create a new Workflow.
 3. Import the following file from the top-right menu:
    `n8n/workflows/trench-predator-v1.1.workflow.json`.
-4. Configure PostgreSQL and Redis credentials in their respective nodes.
+4. Configure PostgreSQL and Redis credentials in their respective nodes if you are not using the imported local development credentials.
 
 ## Step 4: Code Node Setup
 
-Logic snippets are located in `n8n/code-nodes/`. If the imported workflow doesn't have the code loaded:
-1. Open each "Code" node.
-2. Copy the content from the matching file (e.g., `01-extract-token-address.js`) and paste it into the node.
+Logic snippets are located in `n8n/code-nodes/` and are embedded into the workflow export. The workflow uses native Redis, PostgreSQL and HTTP nodes for state, persistence and external requests. If you edit a snippet, regenerate the importable workflow:
+
+```bash
+npm run sync:workflow
+```
 
 ## Step 5: Paper Mode Testing
 
@@ -67,7 +77,7 @@ Before activating the real swap node (`05-jupiter-buy.js`):
 ## Step 6: Activating the Signer
 
 The bot generates a `serializedTransaction` but **does not sign it automatically** for security reasons.
-1. Implement a private node or service that takes this field, signs it with your private key, and broadcasts it to the network.
+1. Implement a private signer service at `SIGNER_URL` that takes this field, signs it with your private key, and broadcasts it to the network.
 2. Once broadcasted, update the position status in the `positions` table.
 
 ---

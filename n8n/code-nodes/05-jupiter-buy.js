@@ -1,6 +1,18 @@
 const tokenAddress = $json.tokenAddress;
-const solUsd = Number($json.solUsd);
+const solUsd = Number($json.solUsd ?? env.SOL_USD);
 const betSizeUsd = Number($json.betSizeUsd ?? 0.25);
+
+if (!Number.isFinite(solUsd) || solUsd <= 0) {
+  return [{
+    json: {
+      ...$json,
+      status: "sol_price_missing",
+      tokenAddress,
+      reason: "Set solUsd in the incoming item or SOL_USD in the n8n environment"
+    }
+  }];
+}
+
 const lamportsAmount = Math.max(1, Math.floor((betSizeUsd / solUsd) * 1_000_000_000));
 
 const quoteUrl = new URL("https://quote-api.jup.ag/v6/quote");
@@ -13,7 +25,7 @@ const quoteResponse = await fetch(quoteUrl);
 const quote = await quoteResponse.json();
 
 if (!quoteResponse.ok || quote.error) {
-  return [{ json: { status: "quote_failed", tokenAddress, error: quote.error ?? quote } }];
+  return [{ json: { ...$json, status: "quote_failed", tokenAddress, error: quote.error ?? quote } }];
 }
 
 const swapResponse = await fetch("https://quote-api.jup.ag/v6/swap", {
@@ -36,11 +48,12 @@ const swapResponse = await fetch("https://quote-api.jup.ag/v6/swap", {
 const swapResult = await swapResponse.json();
 
 if (!swapResponse.ok || swapResult.error) {
-  return [{ json: { status: "swap_build_failed", tokenAddress, error: swapResult.error ?? swapResult } }];
+  return [{ json: { ...$json, status: "swap_build_failed", tokenAddress, error: swapResult.error ?? swapResult } }];
 }
 
 return [{
   json: {
+    ...$json,
     status: "swap_ready",
     tokenAddress,
     betSizeUsd,

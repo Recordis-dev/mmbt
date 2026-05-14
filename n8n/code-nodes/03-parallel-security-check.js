@@ -3,13 +3,13 @@ const timeoutMs = 800;
 
 const checks = await Promise.allSettled([
   apiCallWithRetry(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`, {
-    headers: { Authorization: `Bearer ${env.RUGCHECK_API_KEY}` }
+    headers: { Authorization: `Bearer ${$env.RUGCHECK_API_KEY ?? ""}` }
   }).then((data) => ({ source: "rugcheck", tokenAddress, ...data })),
   apiCallWithRetry(`https://api.gopluslabs.io/api/v1/token_security/solana?contract_addresses=${tokenAddress}`, {
-    headers: { Authorization: `Bearer ${env.GOPLUS_API_KEY}` }
+    headers: { Authorization: `Bearer ${$env.GOPLUS_API_KEY ?? ""}` }
   }).then((data) => ({ source: "goplus", tokenAddress, ...data })),
   apiCallWithRetry(`https://api.solsniffer.com/v2/token/${tokenAddress}`, {
-    headers: { "X-API-KEY": env.SOLSNIFFER_API_KEY }
+    headers: { "X-API-KEY": $env.SOLSNIFFER_API_KEY ?? "" }
   }).then((data) => ({ source: "solsniffer", tokenAddress, ...data }))
 ]);
 

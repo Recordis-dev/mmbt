@@ -2,38 +2,258 @@
   "name": "Trench Predator V1.1",
   "nodes": [
     {
+      "id": "signal-webhook",
+      "name": "Signal Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
       "parameters": {
         "path": "trench-signal",
         "httpMethod": "POST",
         "responseMode": "lastNode"
       },
-      "id": "telegram-webhook",
-      "name": "Telegram Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [240, 300]
+      "position": [
+        120,
+        220
+      ]
     },
     {
-      "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/01-extract-token-address.js here"
-      },
       "id": "extract-token-address",
       "name": "Extract Token Address",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "parameters": {
+        "jsCode": "const message = $json.body?.message ?? $json.message ?? $json.text ?? \"\";\nconst regex = /([1-9A-HJ-NP-Za-km-z]{32,44})/g;\nconst matches = message.match(regex);\n\nif (!matches || matches.length === 0) {\n  return [{\n    json: {\n      status: \"ignored\",\n      reason: \"No token address found\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    status: \"parsed\",\n    tokenAddress: matches[0],\n    sourceChannel: $json.body?.channel ?? $json.channel ?? \"unknown\",\n    timestamp: Date.now(),\n    rawMessage: message\n  }\n}];"
+      },
+      "position": [
+        340,
+        220
+      ]
     },
     {
+      "id": "if-parsed",
+      "name": "IF Parsed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/02-admission-control.js here"
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "parsed"
+            }
+          ]
+        }
       },
-      "id": "admission-control",
-      "name": "Admission Control",
+      "position": [
+        560,
+        220
+      ]
+    },
+    {
+      "id": "ignored-signal",
+      "name": "Ignored Signal",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        780,
+        400
+      ]
+    },
+    {
+      "id": "redis-get-duplicate",
+      "name": "Redis Get Duplicate",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "get",
+        "propertyName": "duplicateValue",
+        "key": "=trench:token:{{ $json.tokenAddress }}",
+        "keyType": "string"
+      },
+      "position": [
+        780,
+        80
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "merge-duplicate",
+      "name": "Merge Duplicate",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        1000,
+        220
+      ]
+    },
+    {
+      "id": "redis-get-daily",
+      "name": "Redis Get Daily Count",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "get",
+        "propertyName": "dailyCountValue",
+        "key": "=trench:daily:count:{{ $now.toFormat('yyyy-MM-dd') }}",
+        "keyType": "string"
+      },
+      "position": [
+        1220,
+        80
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "merge-daily",
+      "name": "Merge Daily",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        1440,
+        220
+      ]
+    },
+    {
+      "id": "redis-get-circuit",
+      "name": "Redis Get Circuit Breaker",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "get",
+        "propertyName": "circuitBreakerValue",
+        "key": "trench:circuit_breaker",
+        "keyType": "string"
+      },
+      "position": [
+        1660,
+        80
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "merge-circuit",
+      "name": "Merge Circuit",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        1880,
+        220
+      ]
+    },
+    {
+      "id": "pg-system-state",
+      "name": "Postgres System State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE((SELECT daily_pnl FROM system_state ORDER BY timestamp DESC LIMIT 1), 0) AS daily_pnl,\nCOALESCE((SELECT consecutive_losses FROM system_state ORDER BY timestamp DESC LIMIT 1), 0) AS consecutive_losses,\nCOALESCE((SELECT circuit_breaker_active FROM system_state ORDER BY timestamp DESC LIMIT 1), false) AS circuit_breaker_active,\n(SELECT COUNT(*)::int FROM positions WHERE status = 'open') AS open_positions_count,\nCOALESCE((SELECT trades_executed_today FROM system_state ORDER BY timestamp DESC LIMIT 1), 0) AS trades_executed_today",
+        "options": {}
+      },
+      "position": [
+        2100,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "merge-state",
+      "name": "Merge System State",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        2320,
+        220
+      ]
+    },
+    {
+      "id": "admission-decision",
+      "name": "Admission Decision",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 300]
+      "parameters": {
+        "jsCode": "const duplicate = $json.duplicateValue !== null && $json.duplicateValue !== undefined;\nconst dailyCount = Math.max(\n  Number($json.dailyCountValue ?? 0),\n  Number($json.trades_executed_today ?? 0)\n);\nconst circuitBreakerActive = Boolean($json.circuitBreakerValue) || Boolean($json.circuit_breaker_active);\nconst openPositions = Math.max(\n  Number($json.open_positions_count ?? 0),\n  Number($json.openPositionsCount ?? 0)\n);\n\nif (duplicate) {\n  return [{ json: { ...$json, status: \"duplicate\", reason: \"Token already seen in Redis\" } }];\n}\n\nif (dailyCount >= 200) {\n  return [{ json: { ...$json, status: \"daily_limit_reached\", reason: \"Daily trade limit reached\", dailyCount } }];\n}\n\nif (circuitBreakerActive) {\n  return [{ json: { ...$json, status: \"circuit_breaker_active\", reason: \"Circuit breaker is active\" } }];\n}\n\nif (openPositions >= 3) {\n  return [{ json: { ...$json, status: \"queue\", reason: \"Open position cap reached\", openPositions } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"approved\",\n    dailyPnL: Number($json.daily_pnl ?? 0),\n    consecutiveLosses: Number($json.consecutive_losses ?? 0),\n    dailyCount,\n    openPositions\n  }\n}];"
+      },
+      "position": [
+        2540,
+        220
+      ]
     },
     {
+      "id": "if-admitted",
+      "name": "IF Admitted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
         "conditions": {
           "string": [
@@ -45,23 +265,143 @@
           ]
         }
       },
-      "id": "if-admitted",
-      "name": "IF Admitted",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        2760,
+        220
+      ]
     },
     {
+      "id": "if-queued",
+      "name": "IF Queued",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/03-parallel-security-check.js here"
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "queue"
+            }
+          ]
+        }
       },
-      "id": "parallel-security-check",
+      "position": [
+        2980,
+        400
+      ]
+    },
+    {
+      "id": "pg-insert-queue",
+      "name": "Postgres Insert Queue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signal_queue (token_address, source_channel, raw_message) VALUES ($1,$2,$3) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.tokenAddress, $json.sourceChannel, $json.rawMessage] }}"
+        }
+      },
+      "position": [
+        3200,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "pg-log-rejection",
+      "name": "Postgres Log Rejection",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('signal_rejected',$1,$2::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.reason || $json.status, JSON.stringify($json)] }}"
+        }
+      },
+      "position": [
+        3200,
+        560
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "redis-mark-token",
+      "name": "Redis Mark Token Seen",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "set",
+        "key": "=trench:token:{{ $json.tokenAddress }}",
+        "value": "seen",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400
+      },
+      "position": [
+        2980,
+        40
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "pg-insert-signal",
+      "name": "Postgres Insert Signal",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO signals (token_address, source_channel, raw_message, status)\nVALUES ($1,$2,$3,'approved')\nRETURNING id AS \"signalId\", $1::text AS \"tokenAddress\", $2::text AS \"sourceChannel\", $3::text AS \"rawMessage\",\n$4::numeric AS \"dailyPnL\", $5::int AS \"consecutiveLosses\", $6::int AS \"dailyCount\", $7::int AS \"openPositions\"",
+        "options": {
+          "queryReplacement": "={{ [$json.tokenAddress, $json.sourceChannel, $json.rawMessage, $json.dailyPnL, $json.consecutiveLosses, $json.dailyCount, $json.openPositions] }}"
+        }
+      },
+      "position": [
+        3200,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "security-check",
       "name": "Parallel Security Check",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 220]
+      "parameters": {
+        "jsCode": "const tokenAddress = $json.tokenAddress;\nconst timeoutMs = 800;\n\nconst checks = await Promise.allSettled([\n  apiCallWithRetry(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`, {\n    headers: { Authorization: `Bearer ${$env.RUGCHECK_API_KEY ?? \"\"}` }\n  }).then((data) => ({ source: \"rugcheck\", tokenAddress, ...data })),\n  apiCallWithRetry(`https://api.gopluslabs.io/api/v1/token_security/solana?contract_addresses=${tokenAddress}`, {\n    headers: { Authorization: `Bearer ${$env.GOPLUS_API_KEY ?? \"\"}` }\n  }).then((data) => ({ source: \"goplus\", tokenAddress, ...data })),\n  apiCallWithRetry(`https://api.solsniffer.com/v2/token/${tokenAddress}`, {\n    headers: { \"X-API-KEY\": $env.SOLSNIFFER_API_KEY ?? \"\" }\n  }).then((data) => ({ source: \"solsniffer\", tokenAddress, ...data }))\n]);\n\nconst results = checks\n  .filter((check) => check.status === \"fulfilled\")\n  .map((check) => check.value);\n\nif (results.length < 2) {\n  return [{\n    json: {\n      status: \"abort\",\n      reason: \"Insufficient security data\",\n      tokenAddress,\n      failedAPIs: checks.filter((check) => check.status === \"rejected\").length\n    }\n  }];\n}\n\nconst securityScore = Object.fromEntries(\n  results.map((result) => [result.source, evaluateResult(result)])\n);\n\nconst passedChecks = Object.values(securityScore).filter(Boolean).length;\n\nif (passedChecks === results.length) {\n  return [{ json: { status: \"safe\", tokenAddress, securityScore, results } }];\n}\n\nreturn [{\n  json: {\n    status: \"abort\",\n    reason: \"Security check failed\",\n    tokenAddress,\n    securityScore,\n    results\n  }\n}];\n\nasync function apiCallWithRetry(url, options = {}, maxRetries = 3) {\n  for (let attempt = 0; attempt < maxRetries; attempt += 1) {\n    const controller = new AbortController();\n    const timeout = setTimeout(() => controller.abort(), timeoutMs);\n\n    try {\n      const response = await fetch(url, { ...options, signal: controller.signal });\n      if (!response.ok) throw new Error(`HTTP ${response.status}`);\n      return await response.json();\n    } catch (error) {\n      if (attempt === maxRetries - 1) throw error;\n      await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 100));\n    } finally {\n      clearTimeout(timeout);\n    }\n  }\n}\n\nfunction evaluateResult(result) {\n  if (result.source === \"rugcheck\") {\n    return Number(result.score ?? Infinity) < 500 && result.token?.liquidityBurned === true;\n  }\n\n  if (result.source === \"goplus\") {\n    const data = result.data?.[tokenAddress] ?? result.result?.[tokenAddress] ?? result.data;\n    return isFalseLike(data?.is_mintable) && isFalseLike(data?.is_freezable) && isFalseLike(data?.is_honeypot);\n  }\n\n  if (result.source === \"solsniffer\") {\n    const top10 = Number(result.topHolders?.top10Percentage ?? result.top10Percentage ?? 100);\n    return top10 <= 25;\n  }\n\n  return false;\n}\n\nfunction isFalseLike(value) {\n  return value === false || value === \"0\" || value === 0 || value === \"false\";\n}"
+      },
+      "position": [
+        3420,
+        40
+      ]
     },
     {
+      "id": "if-security-safe",
+      "name": "IF Security Safe",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
         "conditions": {
           "string": [
@@ -73,95 +413,2405 @@
           ]
         }
       },
-      "id": "if-security-passed",
-      "name": "IF Security Passed",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1340, 220]
+      "position": [
+        3640,
+        40
+      ]
     },
     {
+      "id": "pg-log-security-abort",
+      "name": "Postgres Log Security Abort",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
       "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/04-dynamic-bet-size.js here"
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('security_abort',$1,$2::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.reason || $json.status, JSON.stringify($json)] }}"
+        }
       },
-      "id": "dynamic-bet-size",
+      "position": [
+        3860,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "http-market-entry",
+      "name": "HTTP Market Data Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.dexscreener.com/latest/dex/tokens/{{ $json.tokenAddress }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        3860,
+        -80
+      ]
+    },
+    {
+      "id": "merge-market-entry",
+      "name": "Merge Market Entry",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        4080,
+        40
+      ]
+    },
+    {
+      "id": "normalize-market-entry",
+      "name": "Normalize Market Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const pairs = Array.isArray($json.pairs) ? $json.pairs : [];\nconst pair = pairs\n  .filter((item) => item.chainId === \"solana\")\n  .sort((a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0))[0];\n\nif (!pair) {\n  return [{\n    json: {\n      ...$json,\n      marketStatus: \"missing\",\n      market: {},\n      riskSignals: { negativeCount: 0, source: \"market_unavailable\" }\n    }\n  }];\n}\n\nconst buys5m = Number(pair.txns?.m5?.buys ?? 0);\nconst sells5m = Number(pair.txns?.m5?.sells ?? 0);\nconst createdAt = Number(pair.pairCreatedAt ?? 0);\nconst tokenAgeMinutes = createdAt > 0 ? Math.max(0, (Date.now() - createdAt) / 60000) : 0;\n\nreturn [{\n  json: {\n    ...$json,\n    marketStatus: \"ok\",\n    market: {\n      dexId: pair.dexId,\n      pairAddress: pair.pairAddress,\n      url: pair.url,\n      priceUsd: Number(pair.priceUsd ?? 0),\n      liquidityUsd: Number(pair.liquidity?.usd ?? 0),\n      volume5mUsd: Number(pair.volume?.m5 ?? 0),\n      volume24hUsd: Number(pair.volume?.h24 ?? 0),\n      holderCount: Number(pair.info?.holders ?? 0),\n      top10HolderPercentage: Number(pair.info?.top10HolderPercentage ?? 100),\n      buyPressure: buys5m,\n      sellPressure: sells5m,\n      tokenAgeMinutes\n    },\n    metrics: {\n      currentPrice: Number(pair.priceUsd ?? 0),\n      volume24h: Number(pair.volume?.h24 ?? 0),\n      holdersCount: Number(pair.info?.holders ?? 0),\n      buyPressure: buys5m,\n      sellPressure: sells5m,\n      networkFees: 0\n    },\n    riskSignals: { negativeCount: 0, source: \"market_snapshot\" }\n  }\n}];"
+      },
+      "position": [
+        4300,
+        40
+      ]
+    },
+    {
+      "id": "learning-features",
+      "name": "Build Learning Features",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const features = buildLearningFeatures({\n  securityScore: $json.securityScore,\n  market: $json.market,\n  risk: $json.riskSignals\n});\n\nconst patternKey = buildPatternKey(features);\n\nreturn [{\n  json: {\n    ...$json,\n    learningFeatures: features,\n    patternKey,\n    securitySnapshot: JSON.stringify(features.security),\n    marketSnapshot: JSON.stringify(features.market),\n    riskSnapshot: JSON.stringify(features.risk)\n  }\n}];\n\nfunction buildLearningFeatures(input = {}) {\n  const securityScore = input.securityScore ?? {};\n  const market = input.market ?? {};\n  const risk = input.risk ?? {};\n\n  return {\n    featureVersion: \"v1.1\",\n    security: {\n      rugcheck: Boolean(securityScore.rugcheck),\n      goplus: Boolean(securityScore.goplus),\n      solsniffer: Boolean(securityScore.solsniffer)\n    },\n    market: {\n      liquidityUsd: Number(market.liquidityUsd ?? 0),\n      volume5mUsd: Number(market.volume5mUsd ?? 0),\n      volume24hUsd: Number(market.volume24hUsd ?? 0),\n      holderCount: Number(market.holderCount ?? 0),\n      top10HolderPercentage: Number(market.top10HolderPercentage ?? 100),\n      buyPressure: Number(market.buyPressure ?? 0),\n      sellPressure: Number(market.sellPressure ?? 0),\n      tokenAgeMinutes: Number(market.tokenAgeMinutes ?? 0)\n    },\n    risk: {\n      negativeCount: Number(risk.negativeCount ?? 0),\n      source: risk.source ?? \"unknown\"\n    }\n  };\n}\n\nfunction buildPatternKey(features) {\n  const pressureRatio = features.market.sellPressure / (features.market.buyPressure || 1);\n  return [\n    `liq:${bucket(features.market.liquidityUsd, [1000, 5000, 10000, 25000, 50000])}`,\n    `vol5:${bucket(features.market.volume5mUsd, [500, 2500, 5000, 10000, 25000])}`,\n    `holders:${bucket(features.market.holderCount, [25, 75, 150, 300, 600])}`,\n    `top10:${bucket(features.market.top10HolderPercentage, [10, 20, 25, 35, 50])}`,\n    `age:${bucket(features.market.tokenAgeMinutes, [5, 15, 30, 60, 180])}`,\n    `sellbuy:${bucket(pressureRatio, [0.5, 1, 2, 3, 5])}`,\n    `risk:${bucket(features.risk.negativeCount, [0, 1, 2, 3])}`\n  ].join(\"|\");\n}\n\nfunction bucket(value, thresholds) {\n  for (const threshold of thresholds) {\n    if (Number(value) <= threshold) return `lte_${threshold}`;\n  }\n  return `gt_${thresholds[thresholds.length - 1]}`;\n}"
+      },
+      "position": [
+        4520,
+        40
+      ]
+    },
+    {
+      "id": "pg-insert-features",
+      "name": "Postgres Insert Features",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO trade_features (position_id, signal_id, token_address, source_channel, security_score, market_snapshot, risk_snapshot, pattern_key, entry_decision, entry_reason)\nVALUES (NULL,$1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,'approved','security_passed')\nRETURNING $1::int AS \"signalId\", $2::text AS \"tokenAddress\", $3::text AS \"sourceChannel\", $4::jsonb AS \"securityScore\",\n$5::jsonb AS market, $6::jsonb AS risk, $7::text AS \"patternKey\", $8::numeric AS \"dailyPnL\", $9::int AS \"consecutiveLosses\"",
+        "options": {
+          "queryReplacement": "={{ [$json.signalId, $json.tokenAddress, $json.sourceChannel, $json.securitySnapshot, $json.marketSnapshot, $json.riskSnapshot, $json.patternKey, $json.dailyPnL, $json.consecutiveLosses] }}"
+        }
+      },
+      "position": [
+        4740,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "pg-get-pattern",
+      "name": "Postgres Get Pattern",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT $1::int AS \"signalId\", $2::text AS \"tokenAddress\", $3::text AS \"sourceChannel\", $4::jsonb AS market, $5::jsonb AS risk,\n$6::text AS \"patternKey\", $7::numeric AS \"dailyPnL\", $8::int AS \"consecutiveLosses\",\nCOALESCE(lp.sample_count,0) AS sample_count, COALESCE(lp.win_count,0) AS win_count,\nCOALESCE(lp.total_pnl_usd,0) AS total_pnl_usd, COALESCE(lp.avg_max_multiplier,0) AS avg_max_multiplier\nFROM (SELECT 1) seed LEFT JOIN learning_patterns lp ON lp.pattern_key = $6",
+        "options": {
+          "queryReplacement": "={{ [$json.signalId, $json.tokenAddress, $json.sourceChannel, JSON.stringify($json.market), JSON.stringify($json.risk), $json.patternKey, $json.dailyPnL, $json.consecutiveLosses] }}"
+        }
+      },
+      "position": [
+        4960,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "learning-filter",
+      "name": "Learning Admission Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const patternKey = $json.patternKey;\n\nif (!patternKey) {\n  return [{ json: { ...$json, learningAction: \"neutral\", learningReason: \"No pattern key\" } }];\n}\n\nconst pattern = $json.learningPattern ?? $json;\nconst decision = scorePattern(pattern);\n\nif (decision.action === \"block_or_reduce\") {\n  return [{\n    json: {\n      ...$json,\n      learningAction: \"reduce\",\n      betSizeUsd: Math.max(0.1, Number($json.betSizeUsd ?? 0.25) * 0.5),\n      learningReason: decision.reason,\n      confidenceScore: decision.confidenceScore\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    learningAction: decision.action,\n    learningReason: decision.reason,\n    confidenceScore: decision.confidenceScore\n  }\n}];\n\nfunction scorePattern(pattern = {}) {\n  const sampleCount = Number(pattern.sample_count ?? 0);\n  const winCount = Number(pattern.win_count ?? 0);\n  const totalPnlUsd = Number(pattern.total_pnl_usd ?? 0);\n  const avgMaxMultiplier = Number(pattern.avg_max_multiplier ?? 0);\n\n  if (sampleCount < 5) {\n    return { action: \"neutral\", confidenceScore: 0, reason: \"Insufficient samples\" };\n  }\n\n  const winRate = winCount / sampleCount;\n  const pnlPerTrade = totalPnlUsd / sampleCount;\n  const confidenceScore = round((winRate - 0.5) * 2 + pnlPerTrade + Math.min(avgMaxMultiplier, 10) / 10);\n\n  if (confidenceScore <= -0.5) {\n    return { action: \"block_or_reduce\", confidenceScore, reason: \"Pattern has negative historical expectancy\" };\n  }\n\n  if (confidenceScore >= 0.8) {\n    return { action: \"allow\", confidenceScore, reason: \"Pattern has positive historical expectancy\" };\n  }\n\n  return { action: \"neutral\", confidenceScore, reason: \"Pattern is inconclusive\" };\n}\n\nfunction round(value) {\n  return Math.round(value * 10000) / 10000;\n}"
+      },
+      "position": [
+        5180,
+        40
+      ]
+    },
+    {
+      "id": "bet-size",
       "name": "Dynamic Bet Size",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 160]
+      "parameters": {
+        "jsCode": "const dailyPnL = Number($json.dailyPnL ?? 0);\nconst consecutiveLosses = Number($json.consecutiveLosses ?? 0);\n\nlet betSizeUsd = 0.25;\n\nif (dailyPnL <= -15 || consecutiveLosses >= 15) {\n  return [{\n    json: {\n      ...$json,\n      action: \"HALT\",\n      reason: \"Circuit breaker activated\",\n      betSizeUsd: 0\n    }\n  }];\n}\n\nif (dailyPnL < -10) betSizeUsd = 0.15;\nif (dailyPnL < -20) betSizeUsd = 0.10;\nif (consecutiveLosses >= 5) betSizeUsd *= 0.8;\nif (consecutiveLosses >= 10) betSizeUsd *= 0.5;\n\nreturn [{\n  json: {\n    ...$json,\n    action: \"TRADE\",\n    betSizeUsd: Math.round(betSizeUsd * 100) / 100\n  }\n}];"
+      },
+      "position": [
+        5400,
+        40
+      ]
     },
     {
+      "id": "if-trade",
+      "name": "IF Trade Allowed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/05-jupiter-buy.js here"
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "equal",
+              "value2": "TRADE"
+            }
+          ]
+        }
       },
-      "id": "jupiter-buy",
-      "name": "Jupiter Buy",
+      "position": [
+        5620,
+        40
+      ]
+    },
+    {
+      "id": "redis-set-budget-circuit",
+      "name": "Redis Set Budget Circuit",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "set",
+        "key": "trench:circuit_breaker",
+        "value": "={{ $json.reason }}",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400
+      },
+      "position": [
+        5840,
+        220
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "prepare-buy-quote",
+      "name": "Prepare Buy Quote",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1780, 160]
+      "parameters": {
+        "jsCode": "const solUsd = Number($json.solUsd ?? $env.SOL_USD);\nconst betSizeUsd = Number($json.betSizeUsd ?? 0.25);\n\nif (!Number.isFinite(solUsd) || solUsd <= 0) {\n  return [{ json: { ...$json, status: \"sol_price_missing\", reason: \"Set SOL_USD in n8n environment\" } }];\n}\n\nconst lamportsAmount = Math.max(1, Math.floor((betSizeUsd / solUsd) * 1_000_000_000));\nconst quoteUrl = new URL(\"https://quote-api.jup.ag/v6/quote\");\nquoteUrl.searchParams.set(\"inputMint\", \"So11111111111111111111111111111111111111112\");\nquoteUrl.searchParams.set(\"outputMint\", $json.tokenAddress);\nquoteUrl.searchParams.set(\"amount\", String(lamportsAmount));\nquoteUrl.searchParams.set(\"slippageBps\", String(Number($env.JUPITER_SLIPPAGE_BPS ?? 1500)));\n\nreturn [{ json: { ...$json, status: \"quote_requested\", betSizeUsd, solUsd, lamportsAmount, quoteUrl: quoteUrl.toString() } }];"
+      },
+      "position": [
+        5840,
+        -80
+      ]
     },
     {
+      "id": "if-buy-quote",
+      "name": "IF Buy Quote Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "quote_requested"
+            }
+          ]
+        }
+      },
+      "position": [
+        6060,
+        -80
+      ]
+    },
+    {
+      "id": "pg-log-buy-not-ready",
+      "name": "Postgres Log Buy Not Ready",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('buy_attempt', $1, $2, 'local_engine');"
+        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('buy_not_ready',$1,$2::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.reason || $json.status, JSON.stringify($json)] }}"
+        }
       },
-      "id": "log-buy-attempt",
-      "name": "Log Buy Attempt",
-      "type": "n8n-nodes-base.postgres",
+      "position": [
+        6280,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "http-buy-quote",
+      "name": "HTTP Jupiter Buy Quote",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.quoteUrl }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        6280,
+        -200
+      ]
+    },
+    {
+      "id": "merge-buy-quote",
+      "name": "Merge Buy Quote",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        6500,
+        -80
+      ]
+    },
+    {
+      "id": "prepare-buy-swap",
+      "name": "Prepare Buy Swap",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2000, 160]
+      "parameters": {
+        "jsCode": "const quote = $json.outAmount ? $json : ($json.quote ?? {});\nconst userPublicKey = $env.SOLANA_WALLET_PUBLIC_KEY;\n\nif (!userPublicKey) {\n  return [{ json: { ...$json, status: \"wallet_missing\", reason: \"Set SOLANA_WALLET_PUBLIC_KEY\" } }];\n}\n\nif (!quote.outAmount || !quote.inAmount) {\n  return [{ json: { ...$json, status: \"quote_failed\", reason: $json.error ?? \"Jupiter quote did not return amounts\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"swap_requested\",\n    quote,\n    entryPrice: Number(quote.outAmount) / Number(quote.inAmount),\n    outputAmount: quote.outAmount,\n    swapUrl: \"https://quote-api.jup.ag/v6/swap\",\n    swapPayload: {\n      quoteResponse: quote,\n      userPublicKey,\n      wrapAndUnwrapSol: true,\n      dynamicComputeUnitLimit: true,\n      prioritizationFeeLamports: {\n        priorityLevelWithMaxLamports: {\n          maxLamports: Number($env.JUPITER_MAX_PRIORITY_LAMPORTS ?? 10000000),\n          priorityLevel: \"veryHigh\"\n        }\n      }\n    }\n  }\n}];"
+      },
+      "position": [
+        6720,
+        -80
+      ]
     },
     {
+      "id": "if-buy-swap",
+      "name": "IF Buy Swap Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "parameters": {
-        "amount": 5,
-        "unit": "seconds"
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "swap_requested"
+            }
+          ]
+        }
       },
-      "id": "monitor-wait",
-      "name": "Monitor Wait",
-      "type": "n8n-nodes-base.wait",
+      "position": [
+        6940,
+        -80
+      ]
+    },
+    {
+      "id": "http-buy-swap",
+      "name": "HTTP Jupiter Buy Swap",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.swapUrl }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.swapPayload) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        7160,
+        -200
+      ]
+    },
+    {
+      "id": "merge-buy-swap",
+      "name": "Merge Buy Swap",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        7380,
+        -80
+      ]
+    },
+    {
+      "id": "normalize-buy-swap",
+      "name": "Normalize Buy Swap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const serializedTransaction = $json.swapTransaction ?? $json.serializedTransaction;\n\nif (!serializedTransaction) {\n  return [{ json: { ...$json, status: \"swap_build_failed\", reason: $json.error ?? \"Jupiter did not return swapTransaction\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"swap_ready\",\n    serializedTransaction,\n    signerUrl: $env.SIGNER_URL ?? \"\",\n    signerApiKey: $env.SIGNER_API_KEY ?? \"\",\n    timestamp: Date.now()\n  }\n}];"
+      },
+      "position": [
+        7600,
+        -80
+      ]
+    },
+    {
+      "id": "prepare-buy-signer",
+      "name": "Prepare Buy Signer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (!$json.signerUrl) {\n  return [{\n    json: {\n      ...$json,\n      status: \"paper_swap_ready\",\n      reason: \"SIGNER_URL not configured; transaction built but not signed\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    signerPayload: {\n      action: $json.signerAction ?? \"buy\",\n      tokenAddress: $json.tokenAddress,\n      serializedTransaction: $json.serializedTransaction,\n      expectedOutputAmount: $json.outputAmount,\n      positionId: $json.positionId ?? null\n    }\n  }\n}];"
+      },
+      "position": [
+        7820,
+        -80
+      ]
+    },
+    {
+      "id": "if-buy-signer",
+      "name": "IF Buy Signer Configured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "notEqual",
+              "value2": "paper_swap_ready"
+            }
+          ]
+        }
+      },
+      "position": [
+        8040,
+        -80
+      ]
+    },
+    {
+      "id": "pg-log-paper-buy",
+      "name": "Postgres Log Paper Buy",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (decision_type, reason, metrics_snapshot, source) VALUES ('paper_swap_ready',$1,$2::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.reason || $json.status, JSON.stringify($json)] }}"
+        }
+      },
+      "position": [
+        8260,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "http-buy-signer",
+      "name": "HTTP Buy Signer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.signerUrl }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.signerApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.signerPayload) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        8260,
+        -200
+      ]
+    },
+    {
+      "id": "merge-buy-signer",
+      "name": "Merge Buy Signer",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        8480,
+        -80
+      ]
+    },
+    {
+      "id": "normalize-buy-signer",
+      "name": "Normalize Buy Signer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if ($json.status === \"paper_swap_ready\") {\n  return [{ json: $json }];\n}\n\nconst txHash = $json.txHash ?? $json.signature ?? $json.transactionHash;\nif (!txHash) {\n  return [{ json: { ...$json, status: \"signer_failed\", reason: $json.error ?? \"Signer did not return a transaction hash\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: $json.signerAction === \"sell\" ? \"sold\" : \"bought\",\n    txHash,\n    entryAmount: $json.amount ?? $json.outputAmount,\n    signedAt: Date.now()\n  }\n}];"
+      },
+      "position": [
+        8700,
+        -80
+      ]
+    },
+    {
+      "id": "if-bought",
+      "name": "IF Bought",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "bought"
+            }
+          ]
+        }
+      },
+      "position": [
+        8920,
+        -80
+      ]
+    },
+    {
+      "id": "pg-insert-position",
+      "name": "Postgres Insert Position",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO positions (token_address, entry_price, entry_amount, entry_tx_hash, highest_price, status, trailing_stop_percentage, avg_volume, peak_holders)\nVALUES ($1,$2,$3,$4,$2,'open',20,$5,$6)\nRETURNING id AS \"positionId\", token_address AS \"tokenAddress\"",
+        "options": {
+          "queryReplacement": "={{ [$json.tokenAddress, $json.entryPrice, $json.entryAmount || $json.outputAmount, $json.txHash, $json.market?.volume24hUsd || 0, $json.market?.holderCount || 0] }}"
+        }
+      },
+      "position": [
+        9140,
+        -80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "redis-incr-daily",
+      "name": "Redis Increment Daily Count",
+      "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
-      "position": [2220, 160]
+      "parameters": {
+        "operation": "incr",
+        "key": "=trench:daily:count:{{ $now.toFormat('yyyy-MM-dd') }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "position": [
+        9360,
+        -80
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
     },
     {
+      "id": "monitor-schedule",
+      "name": "Monitor Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
       "parameters": {
-        "jsCode": "// Paste n8n/code-nodes/06-monitor-exit-decision.js here"
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 5
+            }
+          ]
+        }
       },
-      "id": "monitor-exit-decision",
+      "position": [
+        120,
+        760
+      ]
+    },
+    {
+      "id": "pg-open-positions",
+      "name": "Postgres Open Positions",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM positions WHERE status = 'open' ORDER BY created_at ASC",
+        "options": {}
+      },
+      "position": [
+        340,
+        760
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "prepare-monitor",
+      "name": "Prepare Monitor Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const position = {\n  id: $json.id,\n  tokenAddress: $json.token_address ?? $json.tokenAddress,\n  entryPrice: Number($json.entry_price ?? $json.entryPrice),\n  entryAmount: Number($json.entry_amount ?? $json.entryAmount),\n  highestPrice: Number($json.highest_price ?? $json.highestPrice ?? $json.entry_price ?? $json.entryPrice),\n  partialTPTaken: Boolean($json.partial_tp_taken ?? $json.partialTPTaken),\n  avgVolume: Number($json.avg_volume ?? $json.avgVolume ?? 0),\n  peakHolders: Number($json.peak_holders ?? $json.peakHolders ?? 0),\n  createdAt: $json.created_at ?? $json.createdAt\n};\n\nreturn [{ json: { position, tokenAddress: position.tokenAddress } }];"
+      },
+      "position": [
+        560,
+        760
+      ]
+    },
+    {
+      "id": "http-market-monitor",
+      "name": "HTTP Market Data Monitor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.dexscreener.com/latest/dex/tokens/{{ $json.tokenAddress }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        780,
+        640
+      ]
+    },
+    {
+      "id": "merge-monitor-market",
+      "name": "Merge Monitor Market",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        1000,
+        760
+      ]
+    },
+    {
+      "id": "normalize-market-monitor",
+      "name": "Normalize Market Monitor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const pairs = Array.isArray($json.pairs) ? $json.pairs : [];\nconst pair = pairs\n  .filter((item) => item.chainId === \"solana\")\n  .sort((a, b) => Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0))[0];\n\nif (!pair) {\n  return [{\n    json: {\n      ...$json,\n      marketStatus: \"missing\",\n      market: {},\n      riskSignals: { negativeCount: 0, source: \"market_unavailable\" }\n    }\n  }];\n}\n\nconst buys5m = Number(pair.txns?.m5?.buys ?? 0);\nconst sells5m = Number(pair.txns?.m5?.sells ?? 0);\nconst createdAt = Number(pair.pairCreatedAt ?? 0);\nconst tokenAgeMinutes = createdAt > 0 ? Math.max(0, (Date.now() - createdAt) / 60000) : 0;\n\nreturn [{\n  json: {\n    ...$json,\n    marketStatus: \"ok\",\n    market: {\n      dexId: pair.dexId,\n      pairAddress: pair.pairAddress,\n      url: pair.url,\n      priceUsd: Number(pair.priceUsd ?? 0),\n      liquidityUsd: Number(pair.liquidity?.usd ?? 0),\n      volume5mUsd: Number(pair.volume?.m5 ?? 0),\n      volume24hUsd: Number(pair.volume?.h24 ?? 0),\n      holderCount: Number(pair.info?.holders ?? 0),\n      top10HolderPercentage: Number(pair.info?.top10HolderPercentage ?? 100),\n      buyPressure: buys5m,\n      sellPressure: sells5m,\n      tokenAgeMinutes\n    },\n    metrics: {\n      currentPrice: Number(pair.priceUsd ?? 0),\n      volume24h: Number(pair.volume?.h24 ?? 0),\n      holdersCount: Number(pair.info?.holders ?? 0),\n      buyPressure: buys5m,\n      sellPressure: sells5m,\n      networkFees: 0\n    },\n    riskSignals: { negativeCount: 0, source: \"market_snapshot\" }\n  }\n}];"
+      },
+      "position": [
+        1220,
+        760
+      ]
+    },
+    {
+      "id": "exit-decision",
       "name": "Monitor Exit Decision",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2440, 160]
+      "parameters": {
+        "jsCode": "const position = $json.position;\nconst metrics = $json.metrics;\nconst currentPrice = Number(metrics.currentPrice);\nconst entryPrice = Number(position.entryPrice ?? position.entry_price);\nconst highestPrice = Math.max(Number(position.highestPrice ?? position.highest_price ?? currentPrice), currentPrice);\nconst multiplier = currentPrice / entryPrice;\n\nconst riskSignals = analyzeLocally(metrics, position);\nif (riskSignals.negativeCount >= 3) {\n  return [{\n    json: {\n      action: \"panic_exit\",\n      reason: riskSignals.reasons,\n      riskSignals,\n      positionId: position.id\n    }\n  }];\n}\n\nconst stop = calculateTrailingStop(position, currentPrice, highestPrice);\nif (stop.action === \"full_exit\") {\n  return [{\n    json: {\n      action: \"trailing_stop_exit\",\n      reason: `Price ${currentPrice} <= stop ${stop.price}`,\n      stop,\n      riskSignals,\n      positionId: position.id\n    }\n  }];\n}\n\nif (stop.action === \"partial_exit\") {\n  return [{\n    json: {\n      action: \"partial_take_profit\",\n      amount: \"50%\",\n      stop,\n      riskSignals,\n      positionId: position.id\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    action: \"hold\",\n    positionId: position.id,\n    highestPrice,\n    multiplier,\n    stop,\n    riskSignals\n  }\n}];\n\nfunction analyzeLocally(metrics, position) {\n  const signals = [];\n\n  if (Number(position.avgVolume ?? 0) > 0 && Number(metrics.volume24h ?? 0) < Number(position.avgVolume) * 0.5) {\n    signals.push(\"volume_decline\");\n  }\n\n  if (Number(position.peakHolders ?? 0) > 0 && Number(metrics.holdersCount ?? 0) < Number(position.peakHolders) * 0.9) {\n    signals.push(\"holder_drop\");\n  }\n\n  const sellPressure = Number(metrics.sellPressure ?? 0) / (Number(metrics.buyPressure ?? 0) || 1);\n  if (sellPressure > 3) signals.push(\"sell_pressure_spike\");\n\n  if (Number(metrics.networkFees ?? 0) > 100000) signals.push(\"network_congestion\");\n\n  return {\n    negativeCount: signals.length,\n    signals,\n    reasons: signals.join(\", \"),\n    source: \"local_engine\"\n  };\n}\n\nfunction calculateTrailingStop(position, currentPrice, highestPrice) {\n  const entryPrice = Number(position.entryPrice ?? position.entry_price);\n  const multiplier = currentPrice / entryPrice;\n  const stopLossPrice = entryPrice * 0.34;\n\n  if (currentPrice <= stopLossPrice) {\n    return { type: \"hard_stop_loss\", action: \"full_exit\", price: stopLossPrice, multiplier };\n  }\n\n  const partialTPTaken = Boolean(position.partialTPTaken ?? position.partial_tp_taken);\n  if (multiplier >= 2 && !partialTPTaken) {\n    return { type: \"partial_take_profit\", action: \"partial_exit\", amount: \"50%\", multiplier: 2 };\n  }\n\n  if (multiplier <= 2) {\n    return { type: \"stop_loss_only\", action: \"hold\", price: stopLossPrice, multiplier };\n  }\n\n  const percentage = multiplier <= 10\n    ? 20 + (multiplier - 2) * 1.5\n    : Math.min(32 + (multiplier - 10) * 2.5, 55);\n\n  const price = highestPrice * (1 - percentage / 100);\n  return {\n    type: \"trailing_stop\",\n    action: currentPrice <= price ? \"full_exit\" : \"hold\",\n    price,\n    percentage,\n    highestPrice,\n    multiplier\n  };\n}"
+      },
+      "position": [
+        1440,
+        760
+      ]
+    },
+    {
+      "id": "if-exit",
+      "name": "IF Exit Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "notEqual",
+              "value2": "hold"
+            }
+          ]
+        }
+      },
+      "position": [
+        1660,
+        760
+      ]
+    },
+    {
+      "id": "pg-update-hold",
+      "name": "Postgres Update Hold",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE positions SET highest_price = GREATEST(COALESCE(highest_price,0),$2), multiplier = $3, risk_confluences = $4::jsonb WHERE id = $1 RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.positionId, $json.highestPrice || 0, $json.multiplier || 0, JSON.stringify($json.riskSignals || {})] }}"
+        }
+      },
+      "position": [
+        1880,
+        920
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "prepare-sell-quote",
+      "name": "Prepare Sell Quote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const position = $json.position;\nconst currentAmount = Number(position.entryAmount ?? position.entry_amount ?? 0);\nconst tokenAmount = Number($json.exitAmount ?? ($json.action === \"partial_take_profit\" ? currentAmount * 0.5 : currentAmount));\n\nif (!Number.isFinite(tokenAmount) || tokenAmount <= 0) {\n  return [{ json: { ...$json, status: \"sell_amount_missing\", reason: \"Position entry amount is missing\" } }];\n}\n\nconst quoteUrl = new URL(\"https://quote-api.jup.ag/v6/quote\");\nquoteUrl.searchParams.set(\"inputMint\", position.tokenAddress ?? position.token_address);\nquoteUrl.searchParams.set(\"outputMint\", \"So11111111111111111111111111111111111111112\");\nquoteUrl.searchParams.set(\"amount\", String(Math.floor(tokenAmount)));\nquoteUrl.searchParams.set(\"slippageBps\", String(Number($env.JUPITER_EXIT_SLIPPAGE_BPS ?? 2000)));\n\nreturn [{\n  json: {\n    ...$json,\n    signerAction: \"sell\",\n    status: \"sell_quote_requested\",\n    exitAmount: Math.floor(tokenAmount),\n    quoteUrl: quoteUrl.toString()\n  }\n}];"
+      },
+      "position": [
+        1880,
+        640
+      ]
+    },
+    {
+      "id": "http-sell-quote",
+      "name": "HTTP Jupiter Sell Quote",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.quoteUrl }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        2100,
+        540
+      ]
+    },
+    {
+      "id": "merge-sell-quote",
+      "name": "Merge Sell Quote",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        2320,
+        640
+      ]
+    },
+    {
+      "id": "prepare-sell-swap",
+      "name": "Prepare Sell Swap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const quote = $json.outAmount ? $json : ($json.quote ?? {});\nconst userPublicKey = $env.SOLANA_WALLET_PUBLIC_KEY;\n\nif (!userPublicKey) {\n  return [{ json: { ...$json, status: \"wallet_missing\", reason: \"Set SOLANA_WALLET_PUBLIC_KEY\" } }];\n}\n\nif (!quote.outAmount || !quote.inAmount) {\n  return [{ json: { ...$json, status: \"quote_failed\", reason: $json.error ?? \"Jupiter quote did not return amounts\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"swap_requested\",\n    quote,\n    entryPrice: Number(quote.outAmount) / Number(quote.inAmount),\n    outputAmount: quote.outAmount,\n    swapUrl: \"https://quote-api.jup.ag/v6/swap\",\n    swapPayload: {\n      quoteResponse: quote,\n      userPublicKey,\n      wrapAndUnwrapSol: true,\n      dynamicComputeUnitLimit: true,\n      prioritizationFeeLamports: {\n        priorityLevelWithMaxLamports: {\n          maxLamports: Number($env.JUPITER_MAX_PRIORITY_LAMPORTS ?? 10000000),\n          priorityLevel: \"veryHigh\"\n        }\n      }\n    }\n  }\n}];"
+      },
+      "position": [
+        2540,
+        640
+      ]
+    },
+    {
+      "id": "http-sell-swap",
+      "name": "HTTP Jupiter Sell Swap",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.swapUrl }}",
+        "authentication": "none",
+        "sendHeaders": false,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.swapPayload) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        2760,
+        540
+      ]
+    },
+    {
+      "id": "merge-sell-swap",
+      "name": "Merge Sell Swap",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        2980,
+        640
+      ]
+    },
+    {
+      "id": "normalize-sell-swap",
+      "name": "Normalize Sell Swap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const serializedTransaction = $json.swapTransaction ?? $json.serializedTransaction;\n\nif (!serializedTransaction) {\n  return [{ json: { ...$json, status: \"swap_build_failed\", reason: $json.error ?? \"Jupiter did not return swapTransaction\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"swap_ready\",\n    serializedTransaction,\n    signerUrl: $env.SIGNER_URL ?? \"\",\n    signerApiKey: $env.SIGNER_API_KEY ?? \"\",\n    timestamp: Date.now()\n  }\n}];"
+      },
+      "position": [
+        3200,
+        640
+      ]
+    },
+    {
+      "id": "prepare-sell-signer",
+      "name": "Prepare Sell Signer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if (!$json.signerUrl) {\n  return [{\n    json: {\n      ...$json,\n      status: \"paper_swap_ready\",\n      reason: \"SIGNER_URL not configured; transaction built but not signed\"\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    signerPayload: {\n      action: $json.signerAction ?? \"buy\",\n      tokenAddress: $json.tokenAddress,\n      serializedTransaction: $json.serializedTransaction,\n      expectedOutputAmount: $json.outputAmount,\n      positionId: $json.positionId ?? null\n    }\n  }\n}];"
+      },
+      "position": [
+        3420,
+        640
+      ]
+    },
+    {
+      "id": "if-sell-signer",
+      "name": "IF Sell Signer Configured",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "notEqual",
+              "value2": "paper_swap_ready"
+            }
+          ]
+        }
+      },
+      "position": [
+        3640,
+        640
+      ]
+    },
+    {
+      "id": "pg-log-paper-sell",
+      "name": "Postgres Log Paper Sell",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (position_id, decision_type, reason, metrics_snapshot, source) VALUES ($1,'paper_exit_ready',$2,$3::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.positionId, $json.reason || $json.status, JSON.stringify($json)] }}"
+        }
+      },
+      "position": [
+        3860,
+        820
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "http-sell-signer",
+      "name": "HTTP Sell Signer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.signerUrl }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.signerApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.signerPayload) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "position": [
+        3860,
+        540
+      ]
+    },
+    {
+      "id": "merge-sell-signer",
+      "name": "Merge Sell Signer",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "clashHandling": {
+            "values": {
+              "resolveClash": "preferInput1"
+            }
+          },
+          "includeUnpaired": false
+        }
+      },
+      "position": [
+        4080,
+        640
+      ]
+    },
+    {
+      "id": "normalize-sell-signer",
+      "name": "Normalize Sell Signer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "if ($json.status === \"paper_swap_ready\") {\n  return [{ json: $json }];\n}\n\nconst txHash = $json.txHash ?? $json.signature ?? $json.transactionHash;\nif (!txHash) {\n  return [{ json: { ...$json, status: \"signer_failed\", reason: $json.error ?? \"Signer did not return a transaction hash\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: $json.signerAction === \"sell\" ? \"sold\" : \"bought\",\n    txHash,\n    entryAmount: $json.amount ?? $json.outputAmount,\n    signedAt: Date.now()\n  }\n}];"
+      },
+      "position": [
+        4300,
+        640
+      ]
+    },
+    {
+      "id": "if-sold",
+      "name": "IF Sold",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "sold"
+            }
+          ]
+        }
+      },
+      "position": [
+        4520,
+        640
+      ]
+    },
+    {
+      "id": "pg-log-sell-not-ready",
+      "name": "Postgres Log Sell Not Ready",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO decision_logs (position_id, decision_type, reason, metrics_snapshot, source) VALUES ($1,'sell_not_ready',$2,$3::jsonb,'local_engine') RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.positionId, $json.reason || $json.status, JSON.stringify($json)] }}"
+        }
+      },
+      "position": [
+        4740,
+        820
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "if-partial-exit",
+      "name": "IF Partial Exit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "equal",
+              "value2": "partial_take_profit"
+            }
+          ]
+        }
+      },
+      "position": [
+        4740,
+        640
+      ]
+    },
+    {
+      "id": "pg-mark-partial-tp",
+      "name": "Postgres Mark Partial TP",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE positions\nSET partial_tp_taken = true,\n    entry_amount = GREATEST(entry_amount - $2, 0),\n    highest_price = GREATEST(COALESCE(highest_price, 0), $3),\n    multiplier = $4,\n    risk_confluences = $5::jsonb\nWHERE id = $1\nRETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.positionId, $json.exitAmount || 0, $json.stop?.highestPrice || $json.metrics?.currentPrice || 0, $json.stop?.multiplier || 0, JSON.stringify($json.riskSignals || {})] }}"
+        }
+      },
+      "position": [
+        4960,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "learning-outcome",
+      "name": "Prepare Learning Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const position = $json.position ?? {};\nconst entryPrice = Number(position.entryPrice ?? position.entry_price);\nconst exitPrice = Number($json.exitPrice ?? $json.metrics?.currentPrice ?? position.exit_price);\nconst finalMultiplier = entryPrice > 0 ? exitPrice / entryPrice : 0;\nconst maxMultiplier = entryPrice > 0 ? Number(position.highestPrice ?? position.highest_price ?? exitPrice) / entryPrice : finalMultiplier;\nconst pnlUsd = Number($json.pnlUsd ?? position.pnl_usd ?? 0);\nconst createdAt = position.createdAt ?? position.created_at ?? Date.now();\nconst holdTimeSeconds = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));\nconst wasWinner = pnlUsd > 0 || finalMultiplier >= 2;\nconst outcomeLabel = labelOutcome({ finalMultiplier, maxMultiplier, pnlUsd });\n\nreturn [{\n  json: {\n    ...$json,\n    positionId: position.id ?? $json.positionId,\n    tokenAddress: position.tokenAddress ?? position.token_address ?? $json.tokenAddress,\n    holdTimeSeconds,\n    entryPrice,\n    exitPrice,\n    maxMultiplier,\n    finalMultiplier,\n    pnlUsd,\n    wasWinner,\n    outcomeLabel,\n    exitReason: $json.exitReason ?? $json.reason ?? $json.action ?? \"unknown\"\n  }\n}];\n\nfunction labelOutcome(outcome = {}) {\n  if (Number(outcome.maxMultiplier ?? 0) >= 10) return \"moonshot\";\n  if (Number(outcome.finalMultiplier ?? 0) >= 2 || Number(outcome.pnlUsd ?? 0) > 0) return \"winner\";\n  if (Number(outcome.finalMultiplier ?? 0) <= 0.34) return \"hard_loss\";\n  if (Number(outcome.pnlUsd ?? 0) < 0) return \"loser\";\n  return \"flat\";\n}"
+      },
+      "position": [
+        4960,
+        700
+      ]
+    },
+    {
+      "id": "pg-close-and-learn",
+      "name": "Postgres Close Position And Learn",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH closed AS (\n  UPDATE positions SET status='closed', closed_at=NOW(), exit_price=$2, exit_tx_hash=$3, exit_reason=$4, pnl_usd=$5, multiplier=$6\n  WHERE id=$1 RETURNING id, token_address\n), outcome AS (\n  INSERT INTO trade_outcomes (position_id, token_address, hold_time_seconds, entry_price, exit_price, max_multiplier, final_multiplier, pnl_usd, exit_reason, was_winner, outcome_label)\n  SELECT $1, token_address, $7, $8, $2, $9, $6, $5, $4, $10, $11 FROM closed\n), feature AS (\n  SELECT pattern_key FROM trade_features WHERE position_id=$1 OR token_address=(SELECT token_address FROM closed) ORDER BY captured_at DESC LIMIT 1\n), current_pattern AS (\n  SELECT lp.* FROM learning_patterns lp JOIN feature f ON f.pattern_key=lp.pattern_key\n), calc AS (\n  SELECT (SELECT pattern_key FROM feature) AS pattern_key,\n    COALESCE((SELECT sample_count FROM current_pattern),0)+1 AS sample_count,\n    COALESCE((SELECT win_count FROM current_pattern),0)+CASE WHEN $10 THEN 1 ELSE 0 END AS win_count,\n    COALESCE((SELECT total_pnl_usd FROM current_pattern),0)+$5 AS total_pnl_usd,\n    COALESCE((SELECT avg_max_multiplier FROM current_pattern),0) AS previous_avg_max\n)\nINSERT INTO learning_patterns (pattern_key, sample_count, win_count, loss_count, total_pnl_usd, avg_pnl_usd, avg_max_multiplier, last_outcome_label, confidence_score, updated_at)\nSELECT pattern_key, sample_count, win_count, sample_count-win_count, total_pnl_usd, total_pnl_usd/sample_count,\n  previous_avg_max + ($9 - previous_avg_max)/sample_count, $11,\n  CASE WHEN sample_count < 5 THEN 0 ELSE ROUND((((win_count::numeric/sample_count)-0.5)*2 + (total_pnl_usd/sample_count) + LEAST(previous_avg_max + ($9 - previous_avg_max)/sample_count,10)/10)::numeric,4) END,\n  NOW()\nFROM calc WHERE pattern_key IS NOT NULL\nON CONFLICT (pattern_key) DO UPDATE SET sample_count=EXCLUDED.sample_count, win_count=EXCLUDED.win_count, loss_count=EXCLUDED.loss_count,\ntotal_pnl_usd=EXCLUDED.total_pnl_usd, avg_pnl_usd=EXCLUDED.avg_pnl_usd, avg_max_multiplier=EXCLUDED.avg_max_multiplier,\nlast_outcome_label=EXCLUDED.last_outcome_label, confidence_score=EXCLUDED.confidence_score, updated_at=NOW()\nRETURNING pattern_key, sample_count, confidence_score",
+        "options": {
+          "queryReplacement": "={{ [$json.positionId, $json.exitPrice, $json.txHash, $json.exitReason, $json.pnlUsd, $json.finalMultiplier, $json.holdTimeSeconds, $json.entryPrice, $json.maxMultiplier, $json.wasWinner, $json.outcomeLabel] }}"
+        }
+      },
+      "position": [
+        4740,
+        640
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "health-schedule",
+      "name": "Health Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "position": [
+        120,
+        1180
+      ]
+    },
+    {
+      "id": "pg-health-stats",
+      "name": "Postgres Health Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(SUM(CASE WHEN closed_at::date=CURRENT_DATE THEN pnl_usd ELSE 0 END),0) AS \"dailyPnL\",\nCOALESCE((SELECT COUNT(*) FROM positions WHERE status='closed' AND pnl_usd < 0 AND closed_at::date=CURRENT_DATE),0) AS \"consecutiveLosses\",\n0 AS \"apiFailures\",\nCOALESCE((SELECT EXTRACT(EPOCH FROM (NOW()-MIN(created_at)))*1000 FROM positions WHERE status='open'),0) AS \"oldestOpenPositionAgeMs\",\n(SELECT COUNT(*)::int FROM positions WHERE status='open') AS \"openPositionsCount\"",
+        "options": {}
+      },
+      "position": [
+        340,
+        1180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "health-check",
+      "name": "Circuit Breaker Health Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const stats = $json.stats ?? $json;\n\nconst triggers = [\n  { condition: Number(stats.dailyPnL ?? 0) <= -15, reason: \"Daily loss limit reached\" },\n  { condition: Number(stats.consecutiveLosses ?? 0) >= 15, reason: \"Consecutive losses limit\" },\n  { condition: Number(stats.apiFailures ?? 0) > 20, reason: \"Excessive API failures\" },\n  { condition: Number(stats.oldestOpenPositionAgeMs ?? 0) > 45 * 60 * 1000, reason: \"Position timeout risk\" }\n];\n\nconst trigger = triggers.find((item) => item.condition);\n\nif (!trigger) {\n  return [{ json: { ...$json, status: \"healthy\" } }];\n}\n\nreturn [{\n  json: {\n    ...$json,\n    status: \"halted\",\n    reason: trigger.reason,\n    closeAllPositions: true,\n    notifyAdmin: true\n  }\n}];"
+      },
+      "position": [
+        560,
+        1180
+      ]
+    },
+    {
+      "id": "if-health-halted",
+      "name": "IF Health Halted",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "halted"
+            }
+          ]
+        }
+      },
+      "position": [
+        780,
+        1180
+      ]
+    },
+    {
+      "id": "redis-health-circuit",
+      "name": "Redis Set Health Circuit",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "set",
+        "key": "trench:circuit_breaker",
+        "value": "={{ $json.reason }}",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400
+      },
+      "position": [
+        1000,
+        1080
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
+    },
+    {
+      "id": "pg-write-system-state",
+      "name": "Postgres Write System State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO system_state (daily_pnl, consecutive_losses, open_positions_count, circuit_breaker_active, api_failures_today, trades_executed_today)\nVALUES ($1,$2,$3,$4,$5,COALESCE((SELECT trades_executed_today FROM system_state ORDER BY timestamp DESC LIMIT 1),0)) RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [$json.dailyPnL, $json.consecutiveLosses, $json.openPositionsCount, $json.status === 'halted', $json.apiFailures] }}"
+        }
+      },
+      "position": [
+        1220,
+        1080
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "health-ok",
+      "name": "Health OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        1000,
+        1280
+      ]
+    },
+    {
+      "id": "startup-manual",
+      "name": "Startup Recovery Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        120,
+        1500
+      ]
+    },
+    {
+      "id": "pg-startup-close-stale",
+      "name": "Postgres Startup Close Stale",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE positions SET status='timeout', closed_at=NOW(), exit_reason='timeout_recovery' WHERE status='open' AND created_at < NOW() - INTERVAL '45 minutes' RETURNING id",
+        "options": {}
+      },
+      "position": [
+        340,
+        1500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "pg-startup-count-open",
+      "name": "Postgres Startup Count Open",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::int AS open_positions_count FROM positions WHERE status='open'",
+        "options": {}
+      },
+      "position": [
+        560,
+        1500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "trench-postgres-local",
+          "name": "Trench Postgres Local"
+        }
+      }
+    },
+    {
+      "id": "redis-set-open-positions",
+      "name": "Redis Set Open Positions",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "set",
+        "key": "trench:open_positions",
+        "value": "={{ $json.open_positions_count }}",
+        "keyType": "string"
+      },
+      "position": [
+        780,
+        1500
+      ],
+      "credentials": {
+        "redis": {
+          "id": "trench-redis-local",
+          "name": "Trench Redis Local"
+        }
+      }
     }
   ],
   "connections": {
-    "Telegram Webhook": {
-      "main": [[{ "node": "Extract Token Address", "type": "main", "index": 0 }]]
+    "Signal Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Token Address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Extract Token Address": {
-      "main": [[{ "node": "Admission Control", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF Parsed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Admission Control": {
-      "main": [[{ "node": "IF Admitted", "type": "main", "index": 0 }]]
+    "IF Parsed": {
+      "main": [
+        [
+          {
+            "node": "Redis Get Duplicate",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignored Signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Get Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Merge Duplicate",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Redis Get Daily Count",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Get Daily Count": {
+      "main": [
+        [
+          {
+            "node": "Merge Daily",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Daily": {
+      "main": [
+        [
+          {
+            "node": "Redis Get Circuit Breaker",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Circuit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Get Circuit Breaker": {
+      "main": [
+        [
+          {
+            "node": "Merge Circuit",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Circuit": {
+      "main": [
+        [
+          {
+            "node": "Postgres System State",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge System State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres System State": {
+      "main": [
+        [
+          {
+            "node": "Merge System State",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge System State": {
+      "main": [
+        [
+          {
+            "node": "Admission Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Admission Decision": {
+      "main": [
+        [
+          {
+            "node": "IF Admitted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF Admitted": {
-      "main": [[{ "node": "Parallel Security Check", "type": "main", "index": 0 }], []]
+      "main": [
+        [
+          {
+            "node": "Redis Mark Token Seen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Queued": {
+      "main": [
+        [
+          {
+            "node": "Postgres Insert Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Mark Token Seen": {
+      "main": [
+        [
+          {
+            "node": "Postgres Insert Signal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Insert Signal": {
+      "main": [
+        [
+          {
+            "node": "Parallel Security Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parallel Security Check": {
-      "main": [[{ "node": "IF Security Passed", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF Security Safe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "IF Security Passed": {
-      "main": [[{ "node": "Dynamic Bet Size", "type": "main", "index": 0 }], []]
+    "IF Security Safe": {
+      "main": [
+        [
+          {
+            "node": "HTTP Market Data Entry",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Market Entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Security Abort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Market Data Entry": {
+      "main": [
+        [
+          {
+            "node": "Merge Market Entry",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Market Entry": {
+      "main": [
+        [
+          {
+            "node": "Normalize Market Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Market Entry": {
+      "main": [
+        [
+          {
+            "node": "Build Learning Features",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Learning Features": {
+      "main": [
+        [
+          {
+            "node": "Postgres Insert Features",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Insert Features": {
+      "main": [
+        [
+          {
+            "node": "Postgres Get Pattern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Get Pattern": {
+      "main": [
+        [
+          {
+            "node": "Learning Admission Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Learning Admission Filter": {
+      "main": [
+        [
+          {
+            "node": "Dynamic Bet Size",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Dynamic Bet Size": {
-      "main": [[{ "node": "Jupiter Buy", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF Trade Allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Jupiter Buy": {
-      "main": [[{ "node": "Log Buy Attempt", "type": "main", "index": 0 }]]
+    "IF Trade Allowed": {
+      "main": [
+        [
+          {
+            "node": "Prepare Buy Quote",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Redis Set Budget Circuit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Log Buy Attempt": {
-      "main": [[{ "node": "Monitor Wait", "type": "main", "index": 0 }]]
+    "Prepare Buy Quote": {
+      "main": [
+        [
+          {
+            "node": "IF Buy Quote Ready",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Buy Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "Monitor Wait": {
-      "main": [[{ "node": "Monitor Exit Decision", "type": "main", "index": 0 }]]
+    "IF Buy Quote Ready": {
+      "main": [
+        [
+          {
+            "node": "HTTP Jupiter Buy Quote",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Buy Not Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Jupiter Buy Quote": {
+      "main": [
+        [
+          {
+            "node": "Merge Buy Quote",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Buy Quote": {
+      "main": [
+        [
+          {
+            "node": "Prepare Buy Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Buy Swap": {
+      "main": [
+        [
+          {
+            "node": "IF Buy Swap Ready",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Buy Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Buy Swap Ready": {
+      "main": [
+        [
+          {
+            "node": "HTTP Jupiter Buy Swap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Buy Not Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Jupiter Buy Swap": {
+      "main": [
+        [
+          {
+            "node": "Merge Buy Swap",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Buy Swap": {
+      "main": [
+        [
+          {
+            "node": "Normalize Buy Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Buy Swap": {
+      "main": [
+        [
+          {
+            "node": "Prepare Buy Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Buy Signer": {
+      "main": [
+        [
+          {
+            "node": "IF Buy Signer Configured",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Buy Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Buy Signer Configured": {
+      "main": [
+        [
+          {
+            "node": "HTTP Buy Signer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Paper Buy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Buy Signer": {
+      "main": [
+        [
+          {
+            "node": "Merge Buy Signer",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Buy Signer": {
+      "main": [
+        [
+          {
+            "node": "Normalize Buy Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Buy Signer": {
+      "main": [
+        [
+          {
+            "node": "IF Bought",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Bought": {
+      "main": [
+        [
+          {
+            "node": "Postgres Insert Position",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Buy Not Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Insert Position": {
+      "main": [
+        [
+          {
+            "node": "Redis Increment Daily Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monitor Schedule": {
+      "main": [
+        [
+          {
+            "node": "Postgres Open Positions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Open Positions": {
+      "main": [
+        [
+          {
+            "node": "Prepare Monitor Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Monitor Item": {
+      "main": [
+        [
+          {
+            "node": "HTTP Market Data Monitor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Monitor Market",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Market Data Monitor": {
+      "main": [
+        [
+          {
+            "node": "Merge Monitor Market",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Monitor Market": {
+      "main": [
+        [
+          {
+            "node": "Normalize Market Monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Market Monitor": {
+      "main": [
+        [
+          {
+            "node": "Monitor Exit Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monitor Exit Decision": {
+      "main": [
+        [
+          {
+            "node": "IF Exit Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Exit Needed": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sell Quote",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Update Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sell Quote": {
+      "main": [
+        [
+          {
+            "node": "HTTP Jupiter Sell Quote",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Sell Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Jupiter Sell Quote": {
+      "main": [
+        [
+          {
+            "node": "Merge Sell Quote",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sell Quote": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sell Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sell Swap": {
+      "main": [
+        [
+          {
+            "node": "HTTP Jupiter Sell Swap",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Sell Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Jupiter Sell Swap": {
+      "main": [
+        [
+          {
+            "node": "Merge Sell Swap",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sell Swap": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sell Swap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Sell Swap": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sell Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sell Signer": {
+      "main": [
+        [
+          {
+            "node": "IF Sell Signer Configured",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Sell Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Sell Signer Configured": {
+      "main": [
+        [
+          {
+            "node": "HTTP Sell Signer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Paper Sell",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Sell Signer": {
+      "main": [
+        [
+          {
+            "node": "Merge Sell Signer",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sell Signer": {
+      "main": [
+        [
+          {
+            "node": "Normalize Sell Signer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Sell Signer": {
+      "main": [
+        [
+          {
+            "node": "IF Sold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Sold": {
+      "main": [
+        [
+          {
+            "node": "IF Partial Exit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres Log Sell Not Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Partial Exit": {
+      "main": [
+        [
+          {
+            "node": "Postgres Mark Partial TP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Learning Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Learning Outcome": {
+      "main": [
+        [
+          {
+            "node": "Postgres Close Position And Learn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Schedule": {
+      "main": [
+        [
+          {
+            "node": "Postgres Health Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Health Stats": {
+      "main": [
+        [
+          {
+            "node": "Circuit Breaker Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit Breaker Health Check": {
+      "main": [
+        [
+          {
+            "node": "IF Health Halted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Health Halted": {
+      "main": [
+        [
+          {
+            "node": "Redis Set Health Circuit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Set Health Circuit": {
+      "main": [
+        [
+          {
+            "node": "Postgres Write System State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Startup Recovery Manual": {
+      "main": [
+        [
+          {
+            "node": "Postgres Startup Close Stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Startup Close Stale": {
+      "main": [
+        [
+          {
+            "node": "Postgres Startup Count Open",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Startup Count Open": {
+      "main": [
+        [
+          {
+            "node": "Redis Set Open Positions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

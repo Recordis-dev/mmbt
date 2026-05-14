@@ -32,6 +32,14 @@ Crea un archivo `.env` en tu servidor n8n con los siguientes valores:
 ```env
 # Solana
 SOLANA_WALLET_PUBLIC_KEY=tu_clave_publica
+SOL_USD=150
+JUPITER_SLIPPAGE_BPS=1500
+JUPITER_EXIT_SLIPPAGE_BPS=2000
+JUPITER_MAX_PRIORITY_LAMPORTS=10000000
+
+# Servicio firmador seguro
+SIGNER_URL=http://127.0.0.1:8787/sign-and-send
+SIGNER_API_KEY=tu_signer_api_key
 
 # APIs de Seguridad
 RUGCHECK_API_KEY=tu_api_key
@@ -49,13 +57,15 @@ REDIS_URL=redis://localhost:6379
 2. Crea un nuevo flujo (Workflow).
 3. Ve al menú de la esquina superior derecha e importa el archivo:
    `n8n/workflows/trench-predator-v1.1.workflow.json`.
-4. Configura las credenciales de PostgreSQL y Redis en los nodos correspondientes.
+4. Configura las credenciales de PostgreSQL y Redis en los nodos correspondientes si no usas las credenciales locales de desarrollo importadas.
 
 ## Paso 4: Configuración de Nodos de Código
 
-Los fragmentos de lógica están en `n8n/code-nodes/`. Si el workflow importado no tiene el código cargado:
-1. Abre cada nodo de tipo "Code".
-2. Copia el contenido del archivo correspondiente (ej. `01-extract-token-address.js`) y pégalo en el nodo.
+Los fragmentos de lógica están en `n8n/code-nodes/` y se embeben en el workflow exportado. El workflow usa nodos nativos de Redis, PostgreSQL y HTTP para estado, persistencia y llamadas externas. Si editas un fragmento, regenera el workflow importable:
+
+```bash
+npm run sync:workflow
+```
 
 ## Paso 5: Prueba en "Paper Mode" (Modo Simulado)
 
@@ -67,7 +77,7 @@ Antes de activar el nodo de swap real (`05-jupiter-buy.js`):
 ## Paso 6: Activación del Firmador (Signer)
 
 El bot genera la transacción (`serializedTransaction`), pero **no la firma automáticamente** por seguridad.
-1. Implementa un nodo o servicio privado que tome ese campo, lo firme con tu clave privada y lo envíe a la red.
+1. Implementa un servicio firmador privado en `SIGNER_URL` que tome ese campo, lo firme con tu clave privada y lo envíe a la red.
 2. Una vez confirmado el envío, actualiza el estado de la posición en la tabla `positions`.
 
 ---

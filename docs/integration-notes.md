@@ -2,17 +2,23 @@
 
 ## n8n Runtime Assumptions
 
-The Code node snippets assume these helpers are available in the node context:
+The importable workflow now uses native n8n Redis, PostgreSQL and HTTP Request nodes for state, persistence and external I/O. Code nodes are kept for deterministic transformations and decisions.
 
-- `env`: environment variable accessor.
-- `redis`: Redis client with `get`, `set` and `exists`.
-- `db`: PostgreSQL client with `query`.
+Required native credentials:
 
-If your n8n instance does not expose shared clients directly, wire these snippets through native n8n Redis/Postgres nodes instead:
+- `Trench Redis Local` or your production Redis credential.
+- `Trench Postgres Local` or your production PostgreSQL credential.
 
-- Use Redis nodes before admission decisions and pass values into the Code node as JSON.
-- Use Postgres nodes after each decision to persist `signals`, `positions` and `decision_logs`.
-- Keep wallet signing in a dedicated secure node or external service.
+Required environment variables:
+
+- `SOLANA_WALLET_PUBLIC_KEY`
+- `SOL_USD`
+- `RUGCHECK_API_KEY`
+- `GOPLUS_API_KEY`
+- `SOLSNIFFER_API_KEY`
+- `SIGNER_URL` and `SIGNER_API_KEY` for live trading.
+
+If `SIGNER_URL` is not configured, the workflow runs in paper mode: Jupiter transactions are built and logged, but not signed or broadcast.
 
 ## Required Workflow Credentials
 
@@ -26,7 +32,7 @@ If your n8n instance does not expose shared clients directly, wire these snippet
 
 ## Wallet Signing Boundary
 
-`05-jupiter-buy.js` returns `serializedTransaction` with status `swap_ready`.
+The Jupiter swap path returns `serializedTransaction` with status `swap_ready`.
 
 Do not sign inside a public workflow export. Recommended options:
 

@@ -1,0 +1,5 @@
+.pgdata/
+.pgsocket/
+node_modules/
+.env
+.env.n8n.local

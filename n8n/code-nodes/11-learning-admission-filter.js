@@ -4,12 +4,7 @@ if (!patternKey) {
   return [{ json: { ...$json, learningAction: "neutral", learningReason: "No pattern key" } }];
 }
 
-const result = await db.query(
-  "SELECT * FROM learning_patterns WHERE pattern_key = $1",
-  [patternKey]
-);
-
-const pattern = result.rows[0];
+const pattern = $json.learningPattern ?? $json;
 const decision = scorePattern(pattern);
 
 if (decision.action === "block_or_reduce") {

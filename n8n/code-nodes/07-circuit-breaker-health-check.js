@@ -10,13 +10,12 @@ const triggers = [
 const trigger = triggers.find((item) => item.condition);
 
 if (!trigger) {
-  return [{ json: { status: "healthy" } }];
+  return [{ json: { ...$json, status: "healthy" } }];
 }
-
-await redis.set("trench:circuit_breaker", trigger.reason, "EX", 86400);
 
 return [{
   json: {
+    ...$json,
     status: "halted",
     reason: trigger.reason,
     closeAllPositions: true,

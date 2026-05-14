@@ -1,8 +1,8 @@
 const position = $json.position;
 const metrics = $json.metrics;
 const currentPrice = Number(metrics.currentPrice);
-const entryPrice = Number(position.entryPrice);
-const highestPrice = Math.max(Number(position.highestPrice ?? currentPrice), currentPrice);
+const entryPrice = Number(position.entryPrice ?? position.entry_price);
+const highestPrice = Math.max(Number(position.highestPrice ?? position.highest_price ?? currentPrice), currentPrice);
 const multiplier = currentPrice / entryPrice;
 
 const riskSignals = analyzeLocally(metrics, position);
@@ -78,7 +78,7 @@ function analyzeLocally(metrics, position) {
 }
 
 function calculateTrailingStop(position, currentPrice, highestPrice) {
-  const entryPrice = Number(position.entryPrice);
+  const entryPrice = Number(position.entryPrice ?? position.entry_price);
   const multiplier = currentPrice / entryPrice;
   const stopLossPrice = entryPrice * 0.34;
 
@@ -86,7 +86,8 @@ function calculateTrailingStop(position, currentPrice, highestPrice) {
     return { type: "hard_stop_loss", action: "full_exit", price: stopLossPrice, multiplier };
   }
 
-  if (multiplier >= 2 && !position.partialTPTaken) {
+  const partialTPTaken = Boolean(position.partialTPTaken ?? position.partial_tp_taken);
+  if (multiplier >= 2 && !partialTPTaken) {
     return { type: "partial_take_profit", action: "partial_exit", amount: "50%", multiplier: 2 };
   }
 
