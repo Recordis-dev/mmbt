@@ -41,8 +41,8 @@ export function calculateTrailingStop(position, currentPrice) {
     };
   }
 
-  // 3. Before 2x, we only keep the hard stop loss
-  if (multiplier <= 2) {
+  // 3. Strictly below 2x: only hard stop loss is active
+  if (multiplier < 2) {
     return {
       type: "stop_loss_only",
       action: "hold",

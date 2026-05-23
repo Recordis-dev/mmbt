@@ -49,9 +49,10 @@ CREATE TABLE IF NOT EXISTS system_state (
   consecutive_losses INTEGER,
   open_positions_count INTEGER,
   circuit_breaker_active BOOLEAN DEFAULT false,
-  api_failures_today INTEGER,
-  trades_executed_today INTEGER
+  api_failures_today INTEGER
 );
+-- trades_executed_today removed: counted live from signals in admission query.
+ALTER TABLE system_state DROP COLUMN IF EXISTS trades_executed_today;
 
 CREATE TABLE IF NOT EXISTS signal_queue (
   id SERIAL PRIMARY KEY,
@@ -62,6 +63,13 @@ CREATE TABLE IF NOT EXISTS signal_queue (
   status VARCHAR(20) DEFAULT 'queued',
   created_at TIMESTAMP DEFAULT NOW(),
   claimed_at TIMESTAMP
+);
+
+-- Atomic admission dedup: PRIMARY KEY guarantees only one INSERT wins
+-- per token_address within the cleanup window (24 h).
+CREATE TABLE IF NOT EXISTS signal_dedup (
+  token_address VARCHAR(44) PRIMARY KEY,
+  claimed_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS trade_features (
@@ -113,15 +121,23 @@ CREATE TABLE IF NOT EXISTS learning_patterns (
 ALTER TABLE signals ADD COLUMN IF NOT EXISTS raw_message TEXT;
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS avg_volume DECIMAL(30, 10);
 ALTER TABLE positions ADD COLUMN IF NOT EXISTS peak_holders INTEGER;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS bet_size_usd DECIMAL(10, 4);
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS paper_mode BOOLEAN DEFAULT false;
+ALTER TABLE trade_outcomes ADD COLUMN IF NOT EXISTS paper_mode BOOLEAN DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS idx_signals_token ON signals(token_address);
 CREATE INDEX IF NOT EXISTS idx_signals_received_at ON signals(received_at);
+CREATE INDEX IF NOT EXISTS idx_signals_token_received ON signals(token_address, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
 CREATE INDEX IF NOT EXISTS idx_positions_token ON positions(token_address);
 CREATE INDEX IF NOT EXISTS idx_positions_created_at ON positions(created_at);
+CREATE INDEX IF NOT EXISTS idx_positions_open_lock ON positions(status, locked_until) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_positions_closed_at ON positions(closed_at DESC) WHERE status = 'closed';
 CREATE INDEX IF NOT EXISTS idx_decision_logs_position ON decision_logs(position_id);
 CREATE INDEX IF NOT EXISTS idx_signal_queue_status_created ON signal_queue(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_trade_features_position ON trade_features(position_id);
 CREATE INDEX IF NOT EXISTS idx_trade_features_pattern ON trade_features(pattern_key);
 CREATE INDEX IF NOT EXISTS idx_trade_outcomes_position ON trade_outcomes(position_id);
 CREATE INDEX IF NOT EXISTS idx_trade_outcomes_token ON trade_outcomes(token_address);
+CREATE INDEX IF NOT EXISTS idx_signal_dedup_claimed ON signal_dedup(claimed_at);

@@ -7,14 +7,16 @@ import { DEFAULT_LIMITS } from "./config.js";
  * @returns {Promise} - Resolves with the original promise or rejects with a timeout error.
  */
 export async function withTimeout(promise, timeoutMs = DEFAULT_LIMITS.securityTimeoutMs) {
+  let timer;
   const timeout = new Promise((_, reject) => {
-    const timer = setTimeout(() => {
-      clearTimeout(timer);
-      reject(new Error(`Timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
+    timer = setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs);
   });
 
-  return Promise.race([promise, timeout]);
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -83,8 +85,8 @@ export function evaluateProviderResult(result) {
  * @param {Object} result - RugCheck API response.
  * @returns {boolean}
  */
-export function evaluateRugCheck(result) {
-  return Number(result.score ?? Number.POSITIVE_INFINITY) < 500 &&
+export function evaluateRugCheck(result, limits = DEFAULT_LIMITS) {
+  return Number(result.score ?? Number.POSITIVE_INFINITY) < limits.rugcheckMaxScore &&
     result.token?.liquidityBurned === true;
 }
 
@@ -108,14 +110,14 @@ export function evaluateGoPlus(result) {
  * @param {Object} result - SolSniffer API response.
  * @returns {boolean}
  */
-export function evaluateSolSniffer(result) {
+export function evaluateSolSniffer(result, limits = DEFAULT_LIMITS) {
   const top10Concentration = Number(
     result.topHolders?.top10Percentage ??
     result.top10Percentage ??
     100
   );
 
-  return top10Concentration <= 25;
+  return top10Concentration <= limits.solSnifferMaxTop10Pct;
 }
 
 /**

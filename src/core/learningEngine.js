@@ -30,8 +30,12 @@ export function buildLearningFeatures(input = {}) {
 export function buildPatternKey(features) {
   const liquidityBucket = bucket(features.market.liquidityUsd, [1000, 5000, 10000, 25000, 50000]);
   const volumeBucket = bucket(features.market.volume5mUsd, [500, 2500, 5000, 10000, 25000]);
-  const holdersBucket = bucket(features.market.holderCount, [25, 75, 150, 300, 600]);
-  const top10Bucket = bucket(features.market.top10HolderPercentage, [10, 20, 25, 35, 50]);
+  const holdersBucket = features.market.holderCount > 0
+    ? bucket(features.market.holderCount, [25, 75, 150, 300, 600])
+    : "unknown";
+  const top10Bucket = features.market.top10HolderPercentage > 0 && features.market.top10HolderPercentage < 100
+    ? bucket(features.market.top10HolderPercentage, [10, 20, 25, 35, 50])
+    : "unknown";
   const ageBucket = bucket(features.market.tokenAgeMinutes, [5, 15, 30, 60, 180]);
   const pressureRatio = features.market.sellPressure / (features.market.buyPressure || 1);
   const pressureBucket = bucket(pressureRatio, [0.5, 1, 2, 3, 5]);
